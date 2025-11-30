@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
 import pandas as pd
@@ -10,6 +11,14 @@ EXCEL_FILE_PATH = "Pricelistsheet.xlsx"   # your Excel file
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = FastAPI(title="Excel AI API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or ["https://yourdomain.com"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ========== LOAD EXCEL ==========
 def load_excel_as_text(excel_path: str) -> str:
