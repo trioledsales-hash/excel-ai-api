@@ -59,7 +59,7 @@ USER QUESTION:
 """
 
     response = client.chat.completions.create(
-        model="gpt-4.1-mini",  # or another available model
+        model="gpt-5-mini",  # or another available model
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
