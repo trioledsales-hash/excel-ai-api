@@ -18,9 +18,11 @@ EXCEL_FILE_PATH = "Pricelistsheet.xlsx"
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-PRIMARY_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
-FALLBACK_MODEL = "deepseek/deepseek-chat:free"
+# Primary: DeepSeek R1 (FREE)
+PRIMARY_MODEL = "deepseek/deepseek-r1:free"
 
+# Fallback: Gemini 2.0 Flash experimental (FREE)
+FALLBACK_MODEL = "google/gemini-2.0-flash-exp:free"
 
 
 # ========================
@@ -37,16 +39,16 @@ for sheet_name in xls.sheet_names:
 
 
 def get_relevant_excel_context(question: str, max_rows: int = 20) -> str:
-
     """
     Search Excel rows matching keywords in question.
-    Returns only relevant rows (improves accuracy).
+    Returns only relevant rows (improves accuracy & speed).
     """
     words = re.findall(r"\w+", question.lower())
     stopwords = {
-        "what","is","the","price","of","and","all","in","on","to",
-        "show","list","give","item","items","excel","sheet","from",
-        "mrp","rate","for","brand","light","watt","w","with","street"
+        "what", "is", "the", "price", "of", "and", "all", "in", "on", "to",
+        "show", "list", "give", "item", "items", "excel", "sheet", "from",
+        "mrp", "rate", "for", "brand", "light", "watt", "w", "with", "street",
+        "products", "product"
     }
 
     keywords = [w for w in words if w not in stopwords]
@@ -78,11 +80,11 @@ def get_relevant_excel_context(question: str, max_rows: int = 20) -> str:
 #   FASTAPI
 # ========================
 
-app = FastAPI(title="Excel AI API (DeepSeek version)")
+app = FastAPI(title="Excel AI API (DeepSeek + Gemini)")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # later you can restrict to your domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,10 +96,10 @@ class Question(BaseModel):
 
 
 # ========================
-#   AI LOGIC
+#   OPENROUTER CALL
 # ========================
 
-def call_openrouter_model(model_name: str, prompt: str) -> str:
+def call_openrouter_model(model_name: str, messages: list[dict]) -> str:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -107,67 +109,76 @@ def call_openrouter_model(model_name: str, prompt: str) -> str:
 
     data = {
         "model": model_name,
-        "messages": prompt,
-        "temperature": 0.0
+        "messages": messages,
+        "temperature": 0.0,  # accurate / deterministic
     }
 
     res = requests.post(OPENROUTER_URL, headers=headers, json=data, timeout=60)
 
     if res.status_code == 429:
-        raise Exception(f"{model_name} rate-limited (429). Try again later.")
+        # rate limit / free quota hit
+        raise Exception(f"{model_name} rate-limited (429). Please try again later.")
     if res.status_code >= 400:
         try:
             detail = res.json().get("error", {}).get("message", res.text)
-        except:
+        except Exception:
             detail = res.text
         raise Exception(f"{model_name} error: {detail}")
 
     try:
         return res.json()["choices"][0]["message"]["content"].strip()
-    except:
-        raise Exception(f"Invalid response format from {model_name}")
+    except Exception as e:
+        raise Exception(f"Invalid response format from {model_name}: {e}")
 
+
+# ========================
+#   MAIN ANSWER LOGIC
+# ========================
 
 def answer_from_excel(question: str) -> str:
-    context = get_relevant_excel_context(question)
+    context = get_relevant_excel_context(question, max_rows=20)
 
     if not context.strip():
         return "I don't know based on the Excel data."
 
     system_prompt = """
 You answer ONLY using the Excel rows provided.
+
 Rules:
-- Never guess. Never make up numbers.
-- If the answer is not clearly found in the rows, reply exactly:
-  "I don't know based on the Excel data."
-- For product lists, ALWAYS return a Markdown table:
+- Use ONLY the numbers and items in the rows. Never guess or invent.
+- If data for the asked brand/watt/item is NOT present in the rows,
+  reply exactly: "I don't know based on the Excel data."
+- For product lists, ALWAYS reply using a Markdown table like:
 
 | Item | MRP | Platinum | Gold | Silver | Bronze |
 |------|------|----------|--------|---------|---------|
 | Example | 120 | 80 | 85 | 90 | 95 |
 
-- Do NOT include explanations, reasoning, or extra text.
+- Keep the answer short and focused. Do NOT show your internal reasoning.
 """
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Excel rows:\n{context}\n\nQuestion: {question}"}
+        {
+            "role": "user",
+            "content": f"Excel rows:\n{context}\n\nQuestion: {question}",
+        },
     ]
 
-    # Try DeepSeek first
+    # Try DeepSeek R1 first
     try:
         return call_openrouter_model(PRIMARY_MODEL, messages)
-    except Exception as deepseek_error:
-        print("DeepSeek failed:", deepseek_error)
+    except Exception as primary_err:
+        print("Primary model failed:", primary_err)
 
-        # Try fallback Llama
+        # Try Gemini as fallback
         try:
             return call_openrouter_model(FALLBACK_MODEL, messages)
-        except Exception as fallback_error:
-            print("Fallback also failed:", fallback_error)
+        except Exception as fallback_err:
+            print("Fallback model also failed:", fallback_err)
             raise HTTPException(
                 status_code=502,
-                detail=f"DeepSeek failed: {deepseek_error}; Fallback failed: {fallback_error}"
+                detail=f"Primary model failed: {primary_err}; Fallback failed: {fallback_err}",
             )
 
 
@@ -187,4 +198,4 @@ async def ask(payload: Question):
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Excel AI API (DeepSeek version) is running"}
+    return {"status": "ok", "message": "Excel AI API (DeepSeek + Gemini) is running"}
