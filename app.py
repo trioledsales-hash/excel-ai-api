@@ -18,11 +18,9 @@ EXCEL_FILE_PATH = "Pricelistsheet.xlsx"
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Primary model: DeepSeek Chat (FREE)
-PRIMARY_MODEL = "deepseek/deepseek-chat:free"
+PRIMARY_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+FALLBACK_MODEL = "deepseek/deepseek-chat:free"
 
-# Fallback model: Llama 3.3 70B FREE
-FALLBACK_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 
 
 # ========================
@@ -38,7 +36,8 @@ for sheet_name in xls.sheet_names:
     SHEETS[sheet_name] = pd.read_excel(EXCEL_FILE_PATH, sheet_name=sheet_name)
 
 
-def get_relevant_excel_context(question: str, max_rows: int = 40) -> str:
+def get_relevant_excel_context(question: str, max_rows: int = 20) -> str:
+
     """
     Search Excel rows matching keywords in question.
     Returns only relevant rows (improves accuracy).
